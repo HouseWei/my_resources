@@ -1,0 +1,228 @@
+<html>
+    <head>
+    </head>
+    <body>
+        <a><input type="file" id="selectFiles" onchange="LoadMap()"  value="加载smap文件" ></a>
+        <div id="div" style="border:1px solid #000;"><canvas id="canvas"></canvas></div>
+        <script>
+          var vShaderSource = 'attribute vec2 a_Position;'+
+            'attribute vec2 a_Screen_Size;'+
+            'uniform mat4 Pmatrix;'+
+            'uniform mat4 Vmatrix;'+
+            'uniform mat4 Mmatrix;'+
+            'attribute vec3 color;'+//the color of the point
+            'varying vec3 vColor;'+
+            'void main(void) { '+//pre-built function
+              //视图坐标（0~800,0~600)转换为 OPENGL坐标（-1.0，1.0）之间的值
+              'vec2 xyposition = (a_Position / a_Screen_Size) * 2.0 - 1.0;'+
+              'vec4 position=vec4(xyposition,0.0,1.0);'+
+               'gl_Position = Pmatrix*Vmatrix*Mmatrix*vec4(position);'+
+               'gl_PointSize = 1.0;'+
+               'vColor = color;'+
+            '}';
+         
+           var fShaderSource = 'precision mediump float;'+
+            'varying vec3 vColor;'+
+            'void main(void) {'+
+               'gl_FragColor = vec4(vColor, 1.);'+
+            '}';
+            let canvas = document.getElementById('canvas');
+            canvas.width = window.innerWidth;//当前的宽度
+            canvas.height = window.innerHeight;//当前的高度
+            let gl = canvas.getContext('webgl');
+            //创建顶点着色器
+            let vShader = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(vShader,vShaderSource);
+            gl.compileShader(vShader);
+          
+            //创建片元着色器
+            let fShader = gl.createShader(gl.FRAGMENT_SHADER);
+            gl.shaderSource(fShader,fShaderSource);
+            gl.compileShader(fShader);
+          
+            //创建一个完整的着色器
+            let propgram = gl.createProgram();
+            gl.attachShader(propgram,vShader);
+            gl.attachShader(propgram,fShader);
+            gl.linkProgram(propgram);
+            gl.useProgram(propgram);
+            let positions =[];//设置一个数据
+          let resolution=1;
+          let xmin=0;
+          let ymin=0;
+          let xmax=1;
+          let ymax=1;
+          let vectexs =[];//设置一个数据
+          let x0=0;
+          let y0=0;
+            //设置缓冲区存放玩家点击的点的坐标
+            let buffer = gl.createBuffer();
+            //绑定缓冲区
+            gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+            //取到我们需要使用的变量
+            let a_Position = gl.getAttribLocation(propgram,'a_Position');
+            gl.enableVertexAttribArray(a_Position);
+            //每次取两个数据
+            let size = 2;
+            //每个数据的类型是32位浮点型
+            let type = gl.FLOAT;
+            //不需要归一化数据
+            let normalize = false;
+            // 每次迭代运行需要移动数据数 * 每个数据所占内存 到下一个数据开始点。
+            let stride = 0;
+            // 从缓冲起始位置开始读取
+            let offset = 0;
+            // 将 a_Position 变量获取数据的缓冲区指向当前绑定的 buffer。
+            gl.vertexAttribPointer(a_Position, size, type, normalize, stride, offset)
+         
+            //片元色器
+            let u_Color = gl.getAttribLocation(propgram,'color');
+            gl.vertexAttrib3f(u_Color,0.0,0.0,0.0);
+         
+            //顶点着色器
+            //处理顶点着色器中的变量
+            let a_Screen_Size = gl.getAttribLocation(propgram,'a_Screen_Size');//取到屏幕的大小
+          //调用绘制上下文对象提供的API: vertexAttrib2f向存储位置进行传值
+            gl.vertexAttrib2f(a_Screen_Size,canvas.width,canvas.height);//设置参数
+          //获取地址
+          var _PM = gl.getUniformLocation(propgram, "Pmatrix");
+          var _VM = gl.getUniformLocation(propgram, "Vmatrix");
+          var _MM = gl.getUniformLocation(propgram, "Mmatrix");
+          //正交投影
+          var p_matrix = orth_projection(-1,1,-1,1,1,100);
+          //模型举证
+          var m_matrix = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
+          //视图矩阵
+          var v_matrix = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
+          //绑定 
+          gl.uniformMatrix4fv(_PM, false, p_matrix);
+          gl.uniformMatrix4fv(_VM, false, v_matrix);
+          gl.uniformMatrix4fv(_MM, false, m_matrix);		 
+          //背景色
+          gl.clearColor(1,1,1,1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            function LoadMap() {
+		var file = document.getElementById("selectFiles").files[0];
+		var name = file.name;//读取选中文件的文件名
+		var path = document.getElementById("selectFiles").value;//读取选中文件的路径
+		console.log("文件名:"+name+"大小:"+path);
+		//获取读取我文件的File对象
+		//alert(title:'hello',content:'success');
+		var reader = new FileReader();//这是核心,读取操作就是由它完成.
+		reader.readAsText(file,'UTF-8');//读取文件的内容,也可以读取文件的URL
+		reader.onload = function (event) {
+			//当读取完成后回调这个函数,然后此时文件的内容存储到了result中,直接操作即可
+			var res=event.target.result;
+			var strjson=JSON.parse(res);
+			
+			//计算比例，将地图缩放到最大
+			xmin=strjson['header']['minPos']['x'];
+			ymin=strjson['header']['minPos']['y'];
+ 
+			xmax=strjson['header']['maxPos']['x'];
+			ymax=strjson['header']['maxPos']['y'];
+			//resg[0]=0.02;
+			var resg=strjson['header']['resolution'];
+			var scale=0;
+			resolution=resg;
+			for(var m=0;m<strjson['normalPosList'].length;m++)
+			{
+				//解析出的x,y值
+				var resx=strjson['normalPosList'][m]['x'];
+				var resy=strjson['normalPosList'][m]['y'];
+				//最小值移动到0，0
+				resx=resx-xmin;
+				resy=resy-ymin;
+				//然后按比例缩放到932,641
+				var scalex=canvas.width/(xmax-xmin);
+				var scaley=canvas.height/(ymax-ymin);
+				
+				if(scalex>scaley)
+				{
+					scale=scaley;
+				}else
+				{
+					scale=scalex;
+				}
+				//其实最好的办法是坐标除以resolution，然后按比例缩放
+				resx=resx*scale;
+				resy=resy*scale;
+				//y轴方向由向下转为向上.
+				resy=canvas.height-resy;
+				positions.push(resx,resy);
+			}
+			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(positions),gl.STATIC_DRAW);
+			gl.drawArrays(gl.POINTS, 0,  positions.length);
+			
+			//画高级点
+			var points=[];
+			var width=3;
+            var height=2;
+            for(var m=0;m<strjson['advancedPointList'].length;m++)
+            {
+                //最小值移动到0，0
+                var res_x=strjson['advancedPointList'][m]['pos']['x']-xmin;
+                var res_y=strjson['advancedPointList'][m]['pos']['y']-ymin;
+                //其实最好的办法是坐标除以resolution，然后按比例缩放
+                res_x=res_x*scale;
+                res_y=res_y*scale;
+                res_y=canvas.height-res_y;
+                points.push(res_x-width,res_y-height);
+                points.push(res_x+width,res_y-height);
+                points.push(res_x+width,res_y-height);
+                points.push(res_x+width,res_y+height);
+                points.push(res_x+width,res_y+height);
+                points.push(res_x-width,res_y+height);
+                points.push(res_x-width,res_y+height);
+                points.push(res_x-width,res_y-height);
+            }
+			gl.vertexAttrib3f(u_Color,0.0,0.0,1.0);
+			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(points),gl.STATIC_DRAW);
+			gl.drawArrays(gl.LINES, 0,  points.length/2);
+			
+			//画高级曲线
+			var points=[];
+			for(var m=0;m<strjson['advancedCurveList'].length;m++)
+			{
+				//最小值移动到0，0
+				var res_sx=strjson['advancedCurveList'][m]['startPos']['pos']['x']-xmin;
+				var res_sy=strjson['advancedCurveList'][m]['startPos']['pos']['y']-ymin;
+				var res_ex=strjson['advancedCurveList'][m]['endPos']['pos']['x']-xmin;
+				var res_ey=strjson['advancedCurveList'][m]['endPos']['pos']['y']-ymin;
+				//其实最好的办法是坐标除以resolution，然后按比例缩放
+				res_sx=res_sx*scale;
+				res_sy=res_sy*scale;
+				res_sy=canvas.height-res_sy;
+				res_ex=res_ex*scale;
+				res_ey=res_ey*scale;
+				res_ey=canvas.height-res_ey;
+				
+				points.push(res_sx,res_sy);
+				points.push(res_ex,res_ey);
+			}
+			gl.vertexAttrib3f(u_Color,0.0,0.0,1.0);
+			gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(points),gl.STATIC_DRAW);
+			gl.drawArrays(gl.LINES, 0,  points.length/2);
+		}
+	}
+
+  function orth_projection(Lpos,Rpos,Tpos,Bpos,Znear,Zfar)
+	{
+		return [2/(Rpos-Lpos),0,0,0,
+		0,2/(Tpos-Bpos),0,0,
+		0,0,1/(Zfar-Znear),0,
+		-(Rpos+Lpos)/(Rpos-Lpos),-(Tpos+Bpos)/(Tpos-Bpos),-Znear/(Zfar-Znear),1];
+	}
+	function get_projection(angle, a, zMin, zMax) {
+		var ang = Math.tan((angle*.5)*Math.PI/180);//angle*.5
+		return [
+		   1/ang/a, 0 , 0, 0,
+		   0, 1/ang, 0, 0,
+		   0, 0, -(zMax+zMin)/(zMax-zMin), -1,
+		   0, 0, (-2*zMax*zMin)/(zMax-zMin), 0 
+		   ];
+	 }
+</script>
+</body>
+</html>
